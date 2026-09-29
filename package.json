@@ -1,0 +1,18 @@
+{
+  "name": "8051-simulator",
+  "version": "1.0.0",
+  "description": "Headless TypeScript 8051 CPU Core Simulator",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "keywords": ["8051", "emulator", "simulator", "typescript"],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.3"
+  }
+}
