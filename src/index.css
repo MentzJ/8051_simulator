@@ -1,0 +1,64 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+
+  body {
+    font-family: 'Inter', system-ui, sans-serif;
+    color-scheme: dark;
+    background-color: #070a12;
+    overflow-x: hidden;
+  }
+
+  code, pre, kbd, samp {
+    font-family: 'JetBrains Mono', monospace;
+  }
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #0b101e;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #1e2c4f;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #38bdf8;
+}
+
+/* Keyframes for memory cell highlight */
+@keyframes cellPulse {
+  0% {
+    background-color: rgba(245, 158, 11, 0.9);
+    color: #ffffff;
+    box-shadow: 0 0 12px rgba(245, 158, 11, 0.7);
+    transform: scale(1.12);
+    z-index: 10;
+  }
+  30% {
+    background-color: rgba(245, 158, 11, 0.6);
+    color: #ffffff;
+  }
+  100% {
+    background-color: transparent;
+    box-shadow: none;
+    transform: scale(1);
+    z-index: 1;
+  }
+}
+
+.cell-modified {
+  animation: cellPulse 0.9s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+}
