@@ -123,3 +123,78 @@ export const PCON_MASK = {
 export interface StepResult {
   cycles: number;
 }
+
+/**
+ * Snapshot of CPU state sent over Web Worker boundary
+ */
+export interface CpuStateSnapshot {
+  pc: number;
+  sp: number;
+  psw: number;
+  acc: number;
+  b: number;
+  dptr: number;
+  dph: number;
+  dpl: number;
+  bank: number;
+  r: number[]; // R0..R7 of current bank
+  p1: number;
+  p1Latch: number;
+  p1External: number;
+  p2: number;
+  p2Latch: number;
+  p2External: number;
+  scon: number;
+  sbufTx: number;
+  sbufRx: number;
+  uartOutput: string;
+  isUartBusy: boolean;
+  baudCycles: number;
+  cyclesElapsed: number;
+  totalCycles: number;
+  instructionCount: number;
+  isRunning: boolean;
+  isHalted: boolean;
+}
+
+/**
+ * Control messages sent from Main Thread -> CPU Worker
+ */
+export type MainToWorkerMessage =
+  | { type: 'LOAD'; code: number[] | Uint8Array; reset?: boolean }
+  | { type: 'RESET'; code?: number[] | Uint8Array }
+  | { type: 'STEP' }
+  | { type: 'RUN'; speed?: '1hz' | '10hz' | 'max'; batchCycles?: number }
+  | { type: 'PAUSE' }
+  | { type: 'SET_PIN'; port: 1 | 2; pin: number; value: boolean }
+  | { type: 'SET_PORT_EXTERNAL'; port: 1 | 2; value: number }
+  | { type: 'RECEIVE_UART'; input: string }
+  | { type: 'CLEAR_UART' }
+  | { type: 'REQUEST_XRAM'; offset: number; length: number }
+  | { type: 'REQUEST_FULL_RAM' }
+  | { type: 'SET_SPEED'; speed: '1hz' | '10hz' | 'max' };
+
+/**
+ * State updates sent from CPU Worker -> Main Thread
+ */
+export type WorkerToMainMessage =
+  | {
+      type: 'STATE_DIFF';
+      state: CpuStateSnapshot;
+      dirtyRam: { address: number; value: number }[];
+      dirtyXram: { address: number; value: number }[];
+    }
+  | {
+      type: 'XRAM_CHUNK';
+      offset: number;
+      data: number[];
+    }
+  | {
+      type: 'FULL_RAM';
+      ram: number[];
+    }
+  | {
+      type: 'ERROR';
+      message: string;
+    };
+

@@ -1,18 +1,15 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { CPU8051, SFR } from './index';
-import { assemble, type AssemblyResult } from './assembler';
-import { DEMO_PRESETS, type DemoPreset } from './presets';
-import { Header } from './components/Header';
-import { Controls, type ExecutionSpeed } from './components/Controls';
-import { CodeEditor } from './components/CodeEditor';
-import { RegisterDashboard } from './components/RegisterDashboard';
-import { RamGrid } from './components/RamGrid';
-import { PeripheralsPanel } from './components/PeripheralsPanel';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { assemble, type AssemblyResult } from './assembler.js';
+import { DEMO_PRESETS, type DemoPreset } from './presets.js';
+import { Header } from './components/Header.js';
+import { Controls, type ExecutionSpeed } from './components/Controls.js';
+import { CodeEditor } from './components/CodeEditor.js';
+import { RegisterDashboard } from './components/RegisterDashboard.js';
+import { RamGrid } from './components/RamGrid.js';
+import { PeripheralsPanel } from './components/PeripheralsPanel.js';
+import { useCpuWorker } from './useCpuWorker.js';
 
 export function App() {
-  const cpuRef = useRef<CPU8051>(new CPU8051());
-  const cpu = cpuRef.current;
-
   // Selected preset and editor code
   const [currentPreset, setCurrentPreset] = useState<DemoPreset>(DEMO_PRESETS[0]);
   const [code, setCode] = useState<string>(DEMO_PRESETS[0].code);
@@ -20,77 +17,45 @@ export function App() {
   // Assembler state
   const [assemblyResult, setAssemblyResult] = useState<AssemblyResult>(() => assemble(DEMO_PRESETS[0].code));
   const [activeLine, setActiveLine] = useState<number | null>(null);
-
-  // Runtime metrics & status
-  const [cycleCount, setCycleCount] = useState<number>(0);
-  const [instructionCount, setInstructionCount] = useState<number>(0);
-  const [isRunning, setIsRunning] = useState<boolean>(false);
-  const [isHalted, setIsHalted] = useState<boolean>(false);
   const [speed, setSpeed] = useState<ExecutionSpeed>('10hz');
 
-  // Registers snapshot
-  const readRegisters = useCallback(() => {
-    return {
-      a: cpu.acc,
-      b: cpu.b,
-      pc: cpu.pc,
-      sp: cpu.sp,
-      dptr: cpu.dptr,
-      dph: cpu.dph,
-      dpl: cpu.dpl,
-      psw: cpu.psw,
-      bank: cpu.bank,
-      r: Array.from({ length: 8 }, (_, i) => cpu.getRegister(i)),
-    };
-  }, [cpu]);
+  // Web Worker CPU Simulation Pipeline
+  const {
+    cpuState,
+    ram,
+    modifiedRamAddresses,
+    xramWindow,
+    xramWindowOffset,
+    modifiedXramAddresses,
+    workerError,
+    loadProgram,
+    resetCpu,
+    step,
+    run,
+    pause,
+    setSpeed: setWorkerSpeed,
+    toggleP2Switch,
+    setP2External,
+    sendUartInput,
+    clearUartOutput,
+    requestXramWindow,
+  } = useCpuWorker();
 
-  const [registers, setRegisters] = useState(readRegisters);
-  const [prevRegisters, setPrevRegisters] = useState<typeof registers | null>(null);
+  // Previous registers cache for diff highlights in RegisterDashboard
+  const prevRegsRef = useRef<typeof registers | null>(null);
 
-  // Peripherals snapshot
-  const readPeripherals = useCallback(() => {
-    return {
-      p1Pin: cpu.readP1Pin(),
-      p1Latch: cpu.p1Latch,
-      p1External: cpu.p1External,
-      p2Pin: cpu.readP2Pin(),
-      p2Latch: cpu.p2Latch,
-      p2External: cpu.p2External,
-      scon: cpu.scon,
-      sbufTx: cpu.sbufTx,
-      sbufRx: cpu.sbufRx,
-      uartOutput: cpu.uartOutput,
-      isUartBusy: cpu.isUartTxBusy,
-      baudCycles: cpu.calculateBaudDurationCycles(),
-    };
-  }, [cpu]);
-
-  const [peripherals, setPeripherals] = useState(readPeripherals);
-
-  // Interaction handlers for peripherals
-  const handleToggleP2Switch = useCallback((bitIndex: number) => {
-    cpu.p2External ^= (1 << bitIndex);
-    setPeripherals(readPeripherals());
-  }, [cpu, readPeripherals]);
-
-  const handleSetP2External = useCallback((val: number) => {
-    cpu.p2External = val & 0xFF;
-    setPeripherals(readPeripherals());
-  }, [cpu, readPeripherals]);
-
-  const handleSendUartInput = useCallback((input: string) => {
-    cpu.receiveUart(input);
-    setPeripherals(readPeripherals());
-  }, [cpu, readPeripherals]);
-
-  const handleClearUartOutput = useCallback(() => {
-    cpu.clearUartOutput();
-    setPeripherals(readPeripherals());
-  }, [cpu, readPeripherals]);
-
-  // RAM state (0x00 - 0x7F) and change tracking
-  const [ram, setRam] = useState<Uint8Array>(() => new Uint8Array(cpu.ram.subarray(0, 128)));
-  const [modifiedAddresses, setModifiedAddresses] = useState<Set<number>>(new Set());
+  const registers = {
+    a: cpuState.acc,
+    b: cpuState.b,
+    pc: cpuState.pc,
+    sp: cpuState.sp,
+    dptr: cpuState.dptr,
+    dph: cpuState.dph,
+    dpl: cpuState.dpl,
+    psw: cpuState.psw,
+    bank: cpuState.bank,
+    r: cpuState.r,
+  };
 
   // Update active editor line based on current PC
   const updateActiveLineForPC = useCallback((pcVal: number, sm: typeof assemblyResult.sourceMap) => {
@@ -98,177 +63,90 @@ export function App() {
     if (match) {
       setActiveLine(match.line);
     } else {
-      // If exact PC is inside a multi-byte instruction or branch
       setActiveLine(null);
     }
   }, []);
 
-  // Assemble and load program into CPU
+  // Update active line when PC changes
+  useEffect(() => {
+    updateActiveLineForPC(cpuState.pc, assemblyResult.sourceMap);
+  }, [cpuState.pc, assemblyResult.sourceMap, updateActiveLineForPC]);
+
+  // Load program into Worker on mount
+  useEffect(() => {
+    const res = assemble(code);
+    setAssemblyResult(res);
+    if (res.errors.length === 0) {
+      loadProgram(res.code, true);
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Assemble and load into Worker
   const compileAndLoad = useCallback(
     (sourceText: string, resetState: boolean = true) => {
       const res = assemble(sourceText);
       setAssemblyResult(res);
 
       if (res.errors.length === 0) {
-        if (resetState) {
-          cpu.reset();
-          setCycleCount(0);
-          setInstructionCount(0);
-          setIsHalted(false);
-          setIsRunning(false);
-          setModifiedAddresses(new Set());
-        }
-
-        // Load machine code into ROM
-        cpu.loadProgram(res.code, 0);
-
-        // Update state views
-        setRegisters(readRegisters());
-        setPrevRegisters(null);
-        setRam(new Uint8Array(cpu.ram.subarray(0, 128)));
-        setPeripherals(readPeripherals());
-        updateActiveLineForPC(cpu.pc, res.sourceMap);
+        loadProgram(res.code, resetState);
       }
       return res;
     },
-    [cpu, readRegisters, readPeripherals, updateActiveLineForPC]
+    [loadProgram]
   );
-
-  // Initialize on mount
-  useEffect(() => {
-    compileAndLoad(code, true);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Handle Preset Selection
   const handleSelectPreset = (preset: DemoPreset) => {
-    setIsRunning(false);
+    pause();
     setCurrentPreset(preset);
     setCode(preset.code);
-    compileAndLoad(preset.code, true);
+    const res = assemble(preset.code);
+    setAssemblyResult(res);
+    if (res.errors.length === 0) {
+      loadProgram(res.code, true);
+    }
   };
 
-  // Perform single step execution
-  const handleStep = useCallback(() => {
-    if (assemblyResult.errors.length > 0) return;
-
-    // Check if CPU is currently on a self-jump (infinite halt like SJMP $)
-    const currentOpcode = cpu.rom[cpu.pc];
-    const nextByte = cpu.rom[(cpu.pc + 1) & 0xffff];
-    if (currentOpcode === 0x80 && nextByte === 0xfe) {
-      setIsHalted(true);
-      setIsRunning(false);
-      return;
+  // Handle Step Action
+  const handleStep = () => {
+    if (assemblyResult.errors.length === 0 && !cpuState.isHalted) {
+      prevRegsRef.current = { ...registers };
+      step();
     }
+  };
 
-    // Save RAM snapshot to detect modified cells
-    const oldRam = new Uint8Array(cpu.ram.subarray(0, 128));
-    const oldRegs = readRegisters();
-
-    try {
-      const res = cpu.step();
-
-      // Detect which RAM addresses changed
-      const changed = new Set<number>();
-      for (let i = 0; i < 128; i++) {
-        if (cpu.ram[i] !== oldRam[i]) {
-          changed.add(i);
-        }
-      }
-
-      setPrevRegisters(oldRegs);
-      const newRegs = readRegisters();
-      setRegisters(newRegs);
-      setRam(new Uint8Array(cpu.ram.subarray(0, 128)));
-      setModifiedAddresses(changed);
-      setPeripherals(readPeripherals());
-      setCycleCount((c) => c + res.cycles);
-      setInstructionCount((i) => i + 1);
-
-      updateActiveLineForPC(cpu.pc, assemblyResult.sourceMap);
-
-      // Check if newly reached instruction is an infinite halt
-      const newOp = cpu.rom[cpu.pc];
-      const newNext = cpu.rom[(cpu.pc + 1) & 0xffff];
-      if (newOp === 0x80 && newNext === 0xfe) {
-        setIsHalted(true);
-        setIsRunning(false);
-      } else {
-        setIsHalted(false);
-      }
-    } catch (err) {
-      console.error('CPU Execution error:', err);
-      setIsRunning(false);
+  // Handle Run Action
+  const handleRun = () => {
+    if (assemblyResult.errors.length === 0 && !cpuState.isHalted) {
+      run(speed);
     }
-  }, [assemblyResult, cpu, readRegisters, readPeripherals, updateActiveLineForPC]);
+  };
+
+  // Handle Pause Action
+  const handlePause = () => {
+    pause();
+  };
 
   // Handle Reset Action
   const handleReset = () => {
-    setIsRunning(false);
-    setIsHalted(false);
-    compileAndLoad(code, true);
+    pause();
+    if (assemblyResult.errors.length === 0) {
+      resetCpu(assemblyResult.code);
+    } else {
+      resetCpu();
+    }
   };
 
-  // Handle Assemble / Reload button
+  // Handle Assemble Button
   const handleAssemble = () => {
     compileAndLoad(code, true);
   };
 
-  // Run / Pause Toggle
-  const handleRun = () => {
-    if (assemblyResult.errors.length === 0 && !isHalted) {
-      setIsRunning(true);
-    }
+  // Handle Speed Change
+  const handleChangeSpeed = (newSpeed: ExecutionSpeed) => {
+    setSpeed(newSpeed);
+    setWorkerSpeed(newSpeed);
   };
-
-  const handlePause = () => {
-    setIsRunning(false);
-  };
-
-  // Execution Timer Loop for Run mode
-  useEffect(() => {
-    if (!isRunning || isHalted) return;
-
-    if (speed === '1hz') {
-      const timer = setInterval(() => {
-        handleStep();
-      }, 1000);
-      return () => clearInterval(timer);
-    } else if (speed === '10hz') {
-      const timer = setInterval(() => {
-        handleStep();
-      }, 100);
-      return () => clearInterval(timer);
-    } else {
-      // Max speed: RAF batch execution
-      let rafId: number;
-      const runBatch = () => {
-        // Execute batch of up to 50 instructions per frame
-        for (let i = 0; i < 50; i++) {
-          const curOp = cpu.rom[cpu.pc];
-          const nxt = cpu.rom[(cpu.pc + 1) & 0xffff];
-          if (curOp === 0x80 && nxt === 0xfe) {
-            setIsHalted(true);
-            setIsRunning(false);
-            break;
-          }
-          cpu.step();
-        }
-
-        // Update UI after batch
-        setRegisters(readRegisters());
-        setRam(new Uint8Array(cpu.ram.subarray(0, 128)));
-        setPeripherals(readPeripherals());
-        updateActiveLineForPC(cpu.pc, assemblyResult.sourceMap);
-
-        if (!isHalted) {
-          rafId = requestAnimationFrame(runBatch);
-        }
-      };
-
-      rafId = requestAnimationFrame(runBatch);
-      return () => cancelAnimationFrame(rafId);
-    }
-  }, [isRunning, isHalted, speed, handleStep, cpu, readRegisters, readPeripherals, assemblyResult, updateActiveLineForPC]);
 
   return (
     <div className="flex min-h-screen flex-col bg-[#070a12] text-slate-100 font-sans">
@@ -276,24 +154,38 @@ export function App() {
       <Header
         currentPresetId={currentPreset.id}
         onSelectPreset={handleSelectPreset}
-        cycleCount={cycleCount}
-        instructionCount={instructionCount}
-        isRunning={isRunning}
-        isHalted={isHalted}
+        cycleCount={cpuState.totalCycles}
+        instructionCount={cpuState.instructionCount}
+        isRunning={cpuState.isRunning}
+        isHalted={cpuState.isHalted}
       />
 
       {/* Main Content Area */}
       <main className="flex-1 p-3.5 space-y-3.5 max-w-[1700px] w-full mx-auto">
+        {/* Worker Error Banner (if any) */}
+        {workerError && (
+          <div className="bg-rose-950/80 border border-rose-700/60 text-rose-200 px-4 py-2.5 rounded-xl text-xs font-mono flex items-center justify-between">
+            <span>Simulation Worker Error: {workerError}</span>
+            <button
+              type="button"
+              onClick={handleReset}
+              className="px-2 py-0.5 bg-rose-800 hover:bg-rose-700 rounded text-[11px]"
+            >
+              Reset Core
+            </button>
+          </div>
+        )}
+
         {/* Middle Control Bar */}
         <Controls
-          isRunning={isRunning}
+          isRunning={cpuState.isRunning}
           onStep={handleStep}
           onRun={handleRun}
           onPause={handlePause}
           onReset={handleReset}
           onAssemble={handleAssemble}
           speed={speed}
-          onChangeSpeed={setSpeed}
+          onChangeSpeed={handleChangeSpeed}
           isAssembled={assemblyResult.errors.length === 0}
           hasErrors={assemblyResult.errors.length > 0}
         />
@@ -317,43 +209,51 @@ export function App() {
 
           {/* Right: Register Dashboard (5 cols on desktop) */}
           <div className="lg:col-span-5 h-[460px]">
-            <RegisterDashboard registers={registers} prevRegisters={prevRegisters} />
+            <RegisterDashboard
+              registers={registers}
+              prevRegisters={prevRegsRef.current}
+            />
           </div>
         </div>
 
         {/* Middle: Visual Peripherals Panel (P1 LEDs, 7-Segment, P2 DIP Switches, UART Terminal) */}
         <div>
           <PeripheralsPanel
-            p1Pin={peripherals.p1Pin}
-            p1Latch={peripherals.p1Latch}
-            p1External={peripherals.p1External}
-            p2Pin={peripherals.p2Pin}
-            p2Latch={peripherals.p2Latch}
-            p2External={peripherals.p2External}
-            onToggleP2Switch={handleToggleP2Switch}
-            onSetP2External={handleSetP2External}
-            scon={peripherals.scon}
-            sbufTx={peripherals.sbufTx}
-            sbufRx={peripherals.sbufRx}
-            uartOutput={peripherals.uartOutput}
-            isUartBusy={peripherals.isUartBusy}
-            baudCycles={peripherals.baudCycles}
-            onSendUartInput={handleSendUartInput}
-            onClearUartOutput={handleClearUartOutput}
+            p1Pin={cpuState.p1}
+            p1Latch={cpuState.p1Latch}
+            p1External={cpuState.p1External}
+            p2Pin={cpuState.p2}
+            p2Latch={cpuState.p2Latch}
+            p2External={cpuState.p2External}
+            onToggleP2Switch={toggleP2Switch}
+            onSetP2External={setP2External}
+            scon={cpuState.scon}
+            sbufTx={cpuState.sbufTx}
+            sbufRx={cpuState.sbufRx}
+            uartOutput={cpuState.uartOutput}
+            isUartBusy={cpuState.isUartBusy}
+            baudCycles={cpuState.baudCycles}
+            onSendUartInput={sendUartInput}
+            onClearUartOutput={clearUartOutput}
           />
         </div>
 
-        {/* Bottom: 16x8 Hex Grid showing Internal RAM (0x00–0x7F) */}
+        {/* Bottom: Tabbed Memory Inspector (Internal RAM 128B + External RAM 64KB XRAM) */}
         <div>
           <RamGrid
             ram={ram}
-            modifiedAddresses={modifiedAddresses}
-            sp={registers.sp}
-            activeBank={registers.bank}
+            modifiedAddresses={modifiedRamAddresses}
+            sp={cpuState.sp}
+            activeBank={cpuState.bank}
+            xramWindow={xramWindow}
+            xramOffset={xramWindowOffset}
+            modifiedXramAddresses={modifiedXramAddresses}
+            onRequestXramOffset={requestXramWindow}
           />
         </div>
       </main>
     </div>
   );
 }
+
 export default App;

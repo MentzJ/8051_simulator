@@ -1,5 +1,5 @@
 import type { CPU8051 } from './cpu.js';
-import { PSW_MASK } from './types.js';
+import { PSW_MASK, SFR } from './types.js';
 
 export type OpcodeHandler = (cpu: CPU8051, opcode: number) => number;
 
@@ -918,6 +918,46 @@ export function buildOpcodeTable(): OpcodeHandler[] {
     cpu.acc = a & 0xFF;
     cpu.setFlag(PSW_MASK.CY, cy);
     return 1;
+  };
+
+  // ----------------------------------------------------
+  // 14. External Data Memory (MOVX)
+  // ----------------------------------------------------
+
+  // MOVX A, @DPTR: 0xE0 (1 byte, 2 cycles)
+  table[0xE0] = (cpu) => {
+    cpu.acc = cpu.readXRAM(cpu.dptr);
+    return 2;
+  };
+
+  // MOVX @DPTR, A: 0xF0 (1 byte, 2 cycles)
+  table[0xF0] = (cpu) => {
+    cpu.writeXRAM(cpu.dptr, cpu.acc);
+    return 2;
+  };
+
+  // MOVX A, @R0 / @R1: 0xE2, 0xE3 (1 byte, 2 cycles)
+  table[0xE2] = (cpu) => {
+    const addr = (cpu.getSFR(SFR.P2) << 8) | cpu.getRegister(0);
+    cpu.acc = cpu.readXRAM(addr);
+    return 2;
+  };
+  table[0xE3] = (cpu) => {
+    const addr = (cpu.getSFR(SFR.P2) << 8) | cpu.getRegister(1);
+    cpu.acc = cpu.readXRAM(addr);
+    return 2;
+  };
+
+  // MOVX @R0 / @R1, A: 0xF2, 0xF3 (1 byte, 2 cycles)
+  table[0xF2] = (cpu) => {
+    const addr = (cpu.getSFR(SFR.P2) << 8) | cpu.getRegister(0);
+    cpu.writeXRAM(addr, cpu.acc);
+    return 2;
+  };
+  table[0xF3] = (cpu) => {
+    const addr = (cpu.getSFR(SFR.P2) << 8) | cpu.getRegister(1);
+    cpu.writeXRAM(addr, cpu.acc);
+    return 2;
   };
 
   return table;

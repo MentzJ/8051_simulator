@@ -419,7 +419,24 @@ console.log(`P:  ${cpu.getFlag(PSW_MASK.P)}`);  // true
     - 7-Segment & LED Counter (`seven-seg-counter`): Cycles digits 0–9 on P1.
     - DIP Switch to LED Echo (`dip-switch-echo`): Pipes live P2 switches to P1 LEDs.
     - UART Terminal Greeting & Echo (`uart-terminal`): 9600 baud transmission and live typing echo.
-- [ ] **Advanced Tooling (Phase 4)**:
+- [x] **Web Worker Decoupling & 64KB External RAM (Phase 4 - Performance)**:
+  - **Dedicated Web Worker Pipeline (`cpu.worker.ts`)**:
+    - Decoupled 8051 CPU core, ROM, internal RAM, SFR, and 64KB XRAM into a background Web Worker.
+    - 60 FPS throttled batch runner: executes up to 30,000–50,000 machine cycles per 16ms frame (approx 12–24 MHz equivalent clock) without blocking React UI rendering.
+    - Lightweight state diff streaming: emits `{ pc, sp, psw, acc, b, dptr, p1, p2, cyclesElapsed, dirtyRam, dirtyXram }`.
+    - Bi-directional control channel: `{ LOAD, RESET, RUN, PAUSE, STEP, SET_PIN, SET_PORT_EXTERNAL, RECEIVE_UART, CLEAR_UART, REQUEST_XRAM }`.
+  - **64KB External Data Memory (XRAM)**:
+    - 65,536-byte external memory space accessed via 16-bit DPTR and 8-bit Ri.
+    - Implemented and assembled `MOVX A, @DPTR` (`0xE0`), `MOVX @DPTR, A` (`0xF0`), `MOVX A, @Ri` (`0xE2`/`0xE3`), and `MOVX @Ri, A` (`0xF2`/`0xF3`).
+    - Differential dirty tracking for instant visual feedback on written memory cells.
+  - **Tabbed Memory Inspector**:
+    - Smooth switching between **Internal RAM (128B)** and **External RAM (64KB XRAM)**.
+    - Hexadecimal address jump input (e.g. jump to `0x2000`, `2000`) with quick-jump presets (`0x0000`, `0x1000`, `0x2000`, `0x8000`).
+    - 256-byte windowed matrix with lazy chunk loading and page navigation.
+    - Interactive cell inspector displaying hex, decimal, binary, ASCII character representation, and write modification pulse animations.
+  - **XRAM Demo Preset**:
+    - `xram-buffer`: External RAM 64KB Buffer Demo writing test patterns to `0x2000` via `MOVX @DPTR, A` and reading them back via `MOVX A, @DPTR`.
+- [ ] **Advanced Tooling (Phase 4 - Expansion)**:
   - External interrupts (`INT0` / `INT1`).
   - Intel HEX file parser and file drag-and-drop import.
   - Breakpoint controller and execution trace logger / waveform panel.

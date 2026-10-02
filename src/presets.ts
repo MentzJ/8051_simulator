@@ -287,4 +287,41 @@ WAIT_RX:
     RET
 `,
   },
+  {
+    id: 'xram-buffer',
+    name: 'External RAM (XRAM) 64KB Buffer Demo',
+    description: 'Writes a test sequence into 64KB external memory at 0x2000 using MOVX @DPTR, A, then reads the data back to verify.',
+    code: `; ==========================================
+; 64KB External Data Memory (XRAM) Demo
+; Uses 16-bit DPTR to write 8 bytes into
+; external RAM at address 2000H using MOVX.
+; ==========================================
+ORG 0000H
+    LJMP START
+
+START:
+    MOV DPTR, #2000H    ; Point to base of external buffer at 0x2000
+    MOV R0, #08H        ; Write 8 bytes
+    MOV A, #11H         ; Initial pattern value
+
+WRITE_LOOP:
+    MOVX @DPTR, A       ; Write ACC to XRAM[DPTR]
+    INC DPTR            ; Advance 16-bit pointer
+    ADD A, #11H         ; Next pattern byte (22H, 33H, ...)
+    DJNZ R0, WRITE_LOOP ; Loop until 8 bytes written
+
+READ_VERIFY:
+    MOV DPTR, #2000H    ; Reset pointer to 0x2000
+    MOV R0, #08H        ; Read count
+
+READ_LOOP:
+    MOVX A, @DPTR       ; Read byte from XRAM[DPTR] into ACC
+    MOV P1, A           ; Output to Port 1 LEDs for visual feedback
+    INC DPTR            ; Advance pointer
+    DJNZ R0, READ_LOOP  ; Loop through external buffer
+
+HALT:
+    SJMP HALT           ; Complete
+`,
+  },
 ];

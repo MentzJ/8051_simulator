@@ -566,6 +566,10 @@ export class Assembler8051 {
         return 3; // direct, #data or direct, direct
       }
 
+      case 'MOVX': {
+        return 1;
+      }
+
       default:
         return 0;
     }
@@ -892,6 +896,19 @@ export class Assembler8051 {
         // MOV direct, direct -> In 8051 machine code: 0x85 src dest
         const srcDir = resolveDirect(op2);
         return [0x85, srcDir, destDir];
+      }
+
+      case 'MOVX': {
+        if (u1 === 'A') {
+          if (u2 === '@DPTR') return [0xe0];
+          if (this.isIndirect(u2)) return [0xe2 + this.getIndirectNumber(u2)];
+          throw new Error(`Invalid source operand for MOVX A: '${op2}' (expected @DPTR, @R0, or @R1)`);
+        } else if (u2 === 'A') {
+          if (u1 === '@DPTR') return [0xf0];
+          if (this.isIndirect(u1)) return [0xf2 + this.getIndirectNumber(u1)];
+          throw new Error(`Invalid destination operand for MOVX: '${op1}' (expected @DPTR, @R0, or @R1)`);
+        }
+        throw new Error(`Invalid operands for MOVX: '${op1}', '${op2}' (one operand must be 'A')`);
       }
 
       default:

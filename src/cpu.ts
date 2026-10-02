@@ -15,6 +15,12 @@ export class CPU8051 {
   /** Program Memory / ROM (64 KB) */
   public readonly rom: Uint8Array = new Uint8Array(65536);
 
+  /** External RAM / XRAM (64 KB, 0x0000 - 0xFFFF) */
+  public readonly xram: Uint8Array = new Uint8Array(65536);
+
+  /** Set of modified XRAM addresses since last clear */
+  public readonly dirtyXram: Set<number> = new Set();
+
   /** 16-bit Program Counter */
   public pc: number = 0;
 
@@ -99,6 +105,9 @@ export class CPU8051 {
     this.sfr[SFR.P1 - 0x80] = 0xFF;
     this.sfr[SFR.P2 - 0x80] = 0xFF;
     this.sfr[SFR.P3 - 0x80] = 0xFF;
+
+    // Clear external RAM dirty flags
+    this.dirtyXram.clear();
   }
 
   /**
@@ -573,6 +582,30 @@ export class CPU8051 {
     } else {
       this.setSFR(address, val);
     }
+  }
+
+  /**
+   * Reads a byte from 16-bit external data memory (XRAM 0x0000 - 0xFFFF).
+   */
+  public readXRAM(address: number): number {
+    return this.xram[address & 0xFFFF];
+  }
+
+  /**
+   * Writes a byte to 16-bit external data memory (XRAM 0x0000 - 0xFFFF)
+   * and marks the address as dirty.
+   */
+  public writeXRAM(address: number, val: number): void {
+    const addr = address & 0xFFFF;
+    this.xram[addr] = val & 0xFF;
+    this.dirtyXram.add(addr);
+  }
+
+  /**
+   * Clears the dirty XRAM modified address tracking set.
+   */
+  public clearDirtyXram(): void {
+    this.dirtyXram.clear();
   }
 
   /**

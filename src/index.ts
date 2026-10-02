@@ -10,6 +10,9 @@ export {
   PCON_MASK,
   type SFRAddress,
   type StepResult,
+  type CpuStateSnapshot,
+  type MainToWorkerMessage,
+  type WorkerToMainMessage,
 } from './types.js';
 export { computeParity, calculateAddFlags, calculateSubbFlags, type ArithmeticFlags } from './flags.js';
 export { buildOpcodeTable, type OpcodeHandler } from './opcodes.js';
