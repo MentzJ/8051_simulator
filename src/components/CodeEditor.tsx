@@ -1,5 +1,5 @@
 import React, { useRef, useEffect } from 'react';
-import { Code2, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import { Code2, AlertTriangle, CheckCircle2 } from './Icons';
 import type { SourceMapEntry, AssemblyError } from '../assembler';
 
 interface CodeEditorProps {

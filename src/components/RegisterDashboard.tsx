@@ -1,5 +1,5 @@
 import React from 'react';
-import { Layers, Activity, Binary, Hash } from 'lucide-react';
+import { Layers, Activity, Binary, Hash } from './Icons';
 import { PSW_MASK } from '../types';
 
 interface RegisterState {

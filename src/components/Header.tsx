@@ -1,5 +1,5 @@
 import React from 'react';
-import { Cpu, RotateCcw, Sparkles } from 'lucide-react';
+import { Cpu, RotateCcw, Sparkles } from './Icons';
 import { DEMO_PRESETS, type DemoPreset } from '../presets';
 
 interface HeaderProps {

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Play, Pause, StepForward, RotateCcw, Zap, Gauge, Hammer } from 'lucide-react';
+import { Play, Pause, StepForward, RotateCcw, Zap, Gauge, Hammer } from './Icons';
 
 export type ExecutionSpeed = '1hz' | '10hz' | 'max';
 
