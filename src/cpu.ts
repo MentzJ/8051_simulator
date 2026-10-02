@@ -31,6 +31,21 @@ export class CPU8051 {
   private inServiceLow: boolean = false;
   private isrPriorityStack: number[] = [];
 
+  /** Quasi-bidirectional Port Latches and External Pin States */
+  private _p1Latch: number = 0xFF;
+  private _p1External: number = 0xFF;
+  private _p2Latch: number = 0xFF;
+  private _p2External: number = 0xFF;
+
+  /** Virtual UART state */
+  private _sbufTx: number = 0x00;
+  private _sbufRx: number = 0x00;
+  private _uartTxBusy: boolean = false;
+  private _uartTxRemainingCycles: number = 0;
+  private _uartOutput: string = '';
+  private _uartRxQueue: number[] = [];
+  public onUartTransmit?: (char: string, byte: number) => void;
+
   /** 256-element jump table for instruction execution */
   private readonly jumpTable: OpcodeHandler[];
 
@@ -46,6 +61,7 @@ export class CPU8051 {
    * - ACC, B, PSW, DPTR reset to 0x00
    * - Default ports (P0-P3) set to 0xFF
    * - Interrupt latches cleared
+   * - Ports and UART reset
    */
   public reset(): void {
     this.pc = 0x0000;
@@ -62,6 +78,20 @@ export class CPU8051 {
     this.inServiceHigh = false;
     this.inServiceLow = false;
     this.isrPriorityStack = [];
+
+    // Reset quasi-bidirectional ports
+    this._p1Latch = 0xFF;
+    this._p1External = 0xFF;
+    this._p2Latch = 0xFF;
+    this._p2External = 0xFF;
+
+    // Reset UART
+    this._sbufTx = 0x00;
+    this._sbufRx = 0x00;
+    this._uartTxBusy = false;
+    this._uartTxRemainingCycles = 0;
+    this._uartOutput = '';
+    this._uartRxQueue = [];
 
     // Synchronize default SFR values
     this.sfr[SFR.SP - 0x80] = 0x07;
@@ -95,6 +125,12 @@ export class CPU8051 {
         return this._dpl;
       case SFR.DPH: // 0x83
         return this._dph;
+      case SFR.P1:  // 0x90
+        return (this._p1Latch & this._p1External) & 0xFF;
+      case SFR.P2:  // 0xA0
+        return (this._p2Latch & this._p2External) & 0xFF;
+      case SFR.SBUF: // 0x99
+        return this._sbufRx;
       default:
         return this.sfr[address - 0x80];
     }
@@ -133,6 +169,23 @@ export class CPU8051 {
         break;
       case SFR.DPH: // 0x83
         this._dph = value;
+        break;
+      case SFR.P1:  // 0x90
+        this._p1Latch = value;
+        this.sfr[SFR.P1 - 0x80] = (this._p1Latch & this._p1External) & 0xFF;
+        break;
+      case SFR.P2:  // 0xA0
+        this._p2Latch = value;
+        this.sfr[SFR.P2 - 0x80] = (this._p2Latch & this._p2External) & 0xFF;
+        break;
+      case SFR.SBUF: // 0x99
+        this.handleUartTransmit(value);
+        break;
+      case SFR.SCON: // 0x98
+        this.sfr[SFR.SCON - 0x80] = value;
+        if ((value & 0x01) === 0) { // If RI cleared, check for next queued byte
+          this.checkAndFeedRx();
+        }
         break;
     }
   }
@@ -263,6 +316,166 @@ export class CPU8051 {
     this.setSFR(SFR.IP, val);
   }
 
+  // --- Quasi-Bidirectional Port 1 (P1, SFR 0x90) ---
+
+  /** Reads the physical pin state of Port 1 (latch & external) */
+  public get p1(): number {
+    return this.readP1Pin();
+  }
+  /** Writes to the internal output latch of Port 1 */
+  public set p1(val: number) {
+    this.setSFR(SFR.P1, val);
+  }
+
+  public get p1Latch(): number {
+    return this._p1Latch;
+  }
+  public set p1Latch(val: number) {
+    this.setSFR(SFR.P1, val);
+  }
+
+  public get p1External(): number {
+    return this._p1External;
+  }
+  public set p1External(val: number) {
+    this._p1External = val & 0xFF;
+    this.sfr[SFR.P1 - 0x80] = (this._p1Latch & this._p1External) & 0xFF;
+  }
+
+  public readP1Pin(): number {
+    return (this._p1Latch & this._p1External) & 0xFF;
+  }
+
+  // --- Quasi-Bidirectional Port 2 (P2, SFR 0xA0) ---
+
+  /** Reads the physical pin state of Port 2 (latch & external) */
+  public get p2(): number {
+    return this.readP2Pin();
+  }
+  /** Writes to the internal output latch of Port 2 */
+  public set p2(val: number) {
+    this.setSFR(SFR.P2, val);
+  }
+
+  public get p2Latch(): number {
+    return this._p2Latch;
+  }
+  public set p2Latch(val: number) {
+    this.setSFR(SFR.P2, val);
+  }
+
+  public get p2External(): number {
+    return this._p2External;
+  }
+  public set p2External(val: number) {
+    this._p2External = val & 0xFF;
+    this.sfr[SFR.P2 - 0x80] = (this._p2Latch & this._p2External) & 0xFF;
+  }
+
+  public readP2Pin(): number {
+    return (this._p2Latch & this._p2External) & 0xFF;
+  }
+
+  // --- Virtual UART (SCON 0x98, SBUF 0x99) ---
+
+  public get scon(): number {
+    return this.getSFR(SFR.SCON);
+  }
+  public set scon(val: number) {
+    this.setSFR(SFR.SCON, val);
+  }
+
+  public get sbuf(): number {
+    return this.getSFR(SFR.SBUF);
+  }
+  public set sbuf(val: number) {
+    this.setSFR(SFR.SBUF, val);
+  }
+
+  public get sbufTx(): number {
+    return this._sbufTx;
+  }
+
+  public get sbufRx(): number {
+    return this._sbufRx;
+  }
+
+  public get uartOutput(): string {
+    return this._uartOutput;
+  }
+
+  public clearUartOutput(): void {
+    this._uartOutput = '';
+  }
+
+  public get isUartTxBusy(): boolean {
+    return this._uartTxBusy;
+  }
+
+  /**
+   * Simulates user typing or incoming byte arrival over serial into SBUF.
+   * Feeds the byte into the receive buffer and sets RI in SCON.
+   */
+  public receiveUart(input: number | string): void {
+    if (typeof input === 'string') {
+      for (let i = 0; i < input.length; i++) {
+        this._uartRxQueue.push(input.charCodeAt(i) & 0xFF);
+      }
+    } else {
+      this._uartRxQueue.push(input & 0xFF);
+    }
+    this.checkAndFeedRx();
+  }
+
+  public checkAndFeedRx(): void {
+    const scon = this.sfr[SFR.SCON - 0x80];
+    if ((scon & 0x01) === 0 && this._uartRxQueue.length > 0) { // RI is bit 0
+      this._sbufRx = this._uartRxQueue.shift()!;
+      this.sfr[SFR.SCON - 0x80] = (scon | 0x01) & 0xFF; // Set RI flag
+    }
+  }
+
+  private handleUartTransmit(byte: number): void {
+    byte &= 0xFF;
+    this._sbufTx = byte;
+    this._uartTxRemainingCycles = this.calculateBaudDurationCycles();
+    this._uartTxBusy = true;
+  }
+
+  public calculateBaudDurationCycles(): number {
+    const tmod = this.getSFR(SFR.TMOD);
+    const tcon = this.getSFR(SFR.TCON);
+    const pcon = this.getSFR(SFR.PCON);
+    const timer1Mode = (tmod >> 4) & 0x03;
+    const tr1 = (tcon & 0x40) !== 0;
+
+    if (timer1Mode === 2 && tr1) {
+      const reload = 256 - this.getSFR(SFR.TH1);
+      if (reload > 0) {
+        const smod = (pcon & 0x80) !== 0 ? 1 : 0;
+        const cyclesPerBit = Math.max(1, Math.floor((32 * reload) / (smod ? 2 : 1)));
+        return cyclesPerBit * 10;
+      }
+    }
+    return 16; // Default responsive duration
+  }
+
+  private tickUart(cycles: number): void {
+    if (this._uartTxBusy) {
+      this._uartTxRemainingCycles -= cycles;
+      if (this._uartTxRemainingCycles <= 0) {
+        this._uartTxBusy = false;
+        this._uartTxRemainingCycles = 0;
+        // Set TI flag in SCON (bit 1)
+        this.sfr[SFR.SCON - 0x80] = (this.sfr[SFR.SCON - 0x80] | 0x02) & 0xFF;
+        const char = String.fromCharCode(this._sbufTx);
+        this._uartOutput += char;
+        this.onUartTransmit?.(char, this._sbufTx);
+      }
+    }
+    this.checkAndFeedRx();
+  }
+
   // --- Interrupt Latch Helpers ---
 
   /** Returns true if any interrupt is currently being serviced */
@@ -332,11 +545,17 @@ export class CPU8051 {
    * Reads from direct address space:
    * - 0x00 - 0x7F: Internal RAM
    * - 0x80 - 0xFF: SFR space
+   * @param address Direct byte address (0x00 - 0xFF).
+   * @param readLatch If true, reads port latches directly instead of physical pins (for read-modify-write).
    */
-  public readDirect(address: number): number {
+  public readDirect(address: number, readLatch: boolean = false): number {
     address &= 0xFF;
     if (address < 0x80) {
       return this.ram[address];
+    }
+    if (readLatch) {
+      if (address === SFR.P1) return this._p1Latch;
+      if (address === SFR.P2) return this._p2Latch;
     }
     return this.getSFR(address);
   }
@@ -380,8 +599,10 @@ export class CPU8051 {
    * Reads a bit from the 8051 bit-addressable memory:
    * - 0x00 - 0x7F: RAM addresses 0x20 - 0x2F
    * - 0x80 - 0xFF: Bit-addressable SFRs (0x80, 0x88, 0x90, ..., 0xF0)
+   * @param bitAddr Bit address (0x00 - 0xFF).
+   * @param readLatch If true, reads port latches directly (for read-modify-write).
    */
-  public getBit(bitAddr: number): boolean {
+  public getBit(bitAddr: number, readLatch: boolean = false): boolean {
     bitAddr &= 0xFF;
     if (bitAddr < 0x80) {
       const byteAddr = 0x20 + (bitAddr >> 3);
@@ -390,12 +611,20 @@ export class CPU8051 {
     } else {
       const sfrAddr = bitAddr & 0xF8;
       const bitIndex = bitAddr & 0x07;
-      return ((this.getSFR(sfrAddr) >> bitIndex) & 1) === 1;
+      let val: number;
+      if (readLatch && (sfrAddr === SFR.P1 || sfrAddr === SFR.P2)) {
+        val = sfrAddr === SFR.P1 ? this._p1Latch : this._p2Latch;
+      } else {
+        val = this.getSFR(sfrAddr);
+      }
+      return ((val >> bitIndex) & 1) === 1;
     }
   }
 
   /**
    * Writes a bit to the 8051 bit-addressable memory.
+   * For quasi-bidirectional I/O ports (P1, P2), reads the latch (not physical pins)
+   * before modifying the bit, preserving external pull-down state.
    */
   public setBit(bitAddr: number, value: boolean): void {
     bitAddr &= 0xFF;
@@ -410,7 +639,7 @@ export class CPU8051 {
     } else {
       const sfrAddr = bitAddr & 0xF8;
       const bitIndex = bitAddr & 0x07;
-      let val = this.getSFR(sfrAddr);
+      let val = (sfrAddr === SFR.P1) ? this._p1Latch : (sfrAddr === SFR.P2) ? this._p2Latch : this.getSFR(sfrAddr);
       if (value) {
         val |= (1 << bitIndex);
       } else {
@@ -460,6 +689,7 @@ export class CPU8051 {
   public tickPeripherals(cycles: number): void {
     if (cycles <= 0) return;
     this.tickTimers(cycles);
+    this.tickUart(cycles);
   }
 
   /**
@@ -566,7 +796,7 @@ export class CPU8051 {
    * Checks for pending enabled interrupts and services the highest priority one.
    * If serviced:
    * - Pushes current PC to stack (SP += 2).
-   * - Clears hardware request flag (TF0 / TF1).
+   * - Clears hardware request flag (TF0 / TF1). Note: Serial flags (TI/RI) are NOT auto-cleared.
    * - Sets internal interrupt-in-service latch.
    * - Jumps to vector.
    * @returns Machine cycles consumed by interrupt dispatch (2 if serviced, 0 if none).
@@ -580,6 +810,7 @@ export class CPU8051 {
 
     const tcon = this.getSFR(SFR.TCON);
     const ip = this.getSFR(SFR.IP);
+    const scon = this.getSFR(SFR.SCON);
 
     interface InterruptCandidate {
       name: string;
@@ -610,6 +841,18 @@ export class CPU8051 {
           this.setSFR(SFR.TCON, this.getSFR(SFR.TCON) & ~0x80);
         },
         naturalOrder: 2,
+      },
+      {
+        name: 'Serial',
+        vector: 0x0023,
+        // Triggered if either RI (bit 0) or TI (bit 1) is set, and ES (IE.4) is enabled
+        pending: ((scon & 0x03) !== 0) && ((ie & 0x10) !== 0),
+        priority: (ip & 0x10) !== 0 ? 1 : 0,
+        clearFlag: () => {
+          // In 8051, hardware does NOT auto-clear RI or TI;
+          // the user ISR is responsible for determining which flag caused the interrupt and clearing it.
+        },
+        naturalOrder: 4,
       },
     ];
 

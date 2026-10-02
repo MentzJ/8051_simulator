@@ -6,6 +6,8 @@ export {
   TMOD_MASK,
   IE_MASK,
   IP_MASK,
+  SCON_MASK,
+  PCON_MASK,
   type SFRAddress,
   type StepResult,
 } from './types.js';

@@ -95,6 +95,31 @@ export const IP_MASK = {
   PT2: 0x20, // Bit 5: Timer 2 Priority (8052)
 } as const;
 
+/**
+ * SCON (Serial Control) Bit Masks (Address 0x98)
+ */
+export const SCON_MASK = {
+  RI:  0x01, // Bit 0: Receive Interrupt flag (set when byte received)
+  TI:  0x02, // Bit 1: Transmit Interrupt flag (set when byte sent)
+  RB8: 0x04, // Bit 2: 9th receive bit in modes 2 & 3
+  TB8: 0x08, // Bit 3: 9th transmit bit in modes 2 & 3
+  REN: 0x10, // Bit 4: Receiver Enable (1 = enabled)
+  SM2: 0x20, // Bit 5: Multiprocessor communication enable
+  SM1: 0x40, // Bit 6: Serial Port Mode bit 1
+  SM0: 0x80, // Bit 7: Serial Port Mode bit 0
+} as const;
+
+/**
+ * PCON (Power Control) Bit Masks (Address 0x87)
+ */
+export const PCON_MASK = {
+  IDL:  0x01, // Bit 0: Idle mode bit
+  PD:   0x02, // Bit 1: Power Down mode bit
+  GF0:  0x04, // Bit 2: General purpose flag 0
+  GF1:  0x08, // Bit 3: General purpose flag 1
+  SMOD: 0x80, // Bit 7: Double Baud rate bit
+} as const;
+
 export interface StepResult {
   cycles: number;
 }

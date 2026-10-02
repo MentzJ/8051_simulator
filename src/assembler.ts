@@ -101,6 +101,16 @@ export const STANDARD_SYMBOLS: Record<string, number> = {
   PX1: 0xBA,
   PT0: 0xB9,
   PX0: 0xB8,
+
+  // SCON bits (0x98)
+  SM0: 0x9F,
+  SM1: 0x9E,
+  SM2: 0x9D,
+  REN: 0x9C,
+  TB8: 0x9B,
+  RB8: 0x9A,
+  TI:  0x99,
+  RI:  0x98,
 };
 
 /**

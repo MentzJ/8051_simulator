@@ -396,10 +396,30 @@ console.log(`P:  ${cpu.getFlag(PSW_MASK.P)}`);  // true
   - 2-level priority arbitration via `IP` register.
   - Return from interrupt (`RETI`, opcode `0x32`) restoring PC and clearing in-service latches.
   - Cycle-accurate peripheral clock stepper via `tickPeripherals(cycles)`.
-- [ ] **Serial & I/O Ports (Phase 3 - Expansion)**:
-  - External interrupts (`INT0` / `INT1`).
-  - Serial interface / UART (`SCON`, `SBUF`, baud rate generator).
-  - Parallel I/O ports (`P0`–`P3`).
+- [x] **Virtual Peripherals & Serial UART (Phase 3 - Expansion)**:
+  - **Quasi-Bidirectional I/O Ports**:
+    - Port 1 (`SFR 0x90`) and Port 2 (`SFR 0xA0`) modeling physical pin equation $\text{pin} = \text{latch} \ \& \ \text{external}$.
+    - Read-modify-write instructions (`SETB`, `CLR`, `CPL`, `ANL`, `ORL`, `XRL`, `INC`, `DEC`, `DJNZ`, `JBC`) read latch rather than pins, preventing external pull-downs from corrupting CPU output.
+  - **8-LED Bar Graph (Port 1)**:
+    - 8 round emerald green LEDs reflecting active-low convention (`0` = glowing ON, `1` = dark/off).
+    - Metallic bezel styling, specular highlight reflections, and per-pin bit readouts.
+  - **Common-Anode 7-Segment Display (Port 1)**:
+    - Standard common-anode decoding (`P1.0=a` through `P1.6=g`, `P1.7=dp`).
+    - Classic crimson red display with slanted geometry, soft tube glow, and automatic character decoder.
+  - **8-DIP Switch Panel (Port 2)**:
+    - Tactile industrial red rocker switches numbered 1–8 corresponding to `P2.0`–`P2.7`.
+    - Live-injects external pull-down state (`0` = switch closed to GND, `1` = switch open/floating HIGH).
+    - Quick actions to pull all pins LOW or release all.
+  - **Virtual UART Terminal (SCON 0x98, SBUF 0x99)**:
+    - Calculated baud duration based on Timer 1 Mode 2 auto-reload reload values.
+    - Automatic `TI` flag assertion in `SCON` upon frame completion and streaming to phosphor terminal.
+    - Interactive keyboard input feeding characters into `_sbufRx` and raising `RI` flag.
+    - Hardware Serial Interrupt vector at `0x0023` arbitrated by `IE.4 (ES)` and `IP.4 (PS)`.
+  - **Interactive Presets**:
+    - 7-Segment & LED Counter (`seven-seg-counter`): Cycles digits 0–9 on P1.
+    - DIP Switch to LED Echo (`dip-switch-echo`): Pipes live P2 switches to P1 LEDs.
+    - UART Terminal Greeting & Echo (`uart-terminal`): 9600 baud transmission and live typing echo.
 - [ ] **Advanced Tooling (Phase 4)**:
+  - External interrupts (`INT0` / `INT1`).
   - Intel HEX file parser and file drag-and-drop import.
   - Breakpoint controller and execution trace logger / waveform panel.

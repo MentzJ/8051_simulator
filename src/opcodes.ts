@@ -108,7 +108,7 @@ export function buildOpcodeTable(): OpcodeHandler[] {
   table[0x10] = (cpu) => {
     const bit = cpu.fetchCode();
     const rel = fetchRel(cpu);
-    if (cpu.getBit(bit)) {
+    if (cpu.getBit(bit, true)) {
       cpu.setBit(bit, false);
       cpu.pc = (cpu.pc + rel) & 0xFFFF;
     }
@@ -456,7 +456,7 @@ export function buildOpcodeTable(): OpcodeHandler[] {
   // INC direct: 0x05 (2 bytes, 1 cycle)
   table[0x05] = (cpu) => {
     const addr = cpu.fetchCode();
-    cpu.writeDirect(addr, (cpu.readDirect(addr) + 1) & 0xFF);
+    cpu.writeDirect(addr, (cpu.readDirect(addr, true) + 1) & 0xFF);
     return 1;
   };
 
@@ -498,7 +498,7 @@ export function buildOpcodeTable(): OpcodeHandler[] {
   // DEC direct: 0x15 (2 bytes, 1 cycle)
   table[0x15] = (cpu) => {
     const addr = cpu.fetchCode();
-    cpu.writeDirect(addr, (cpu.readDirect(addr) - 1) & 0xFF);
+    cpu.writeDirect(addr, (cpu.readDirect(addr, true) - 1) & 0xFF);
     return 1;
   };
 
@@ -543,7 +543,7 @@ export function buildOpcodeTable(): OpcodeHandler[] {
   table[0xD5] = (cpu) => {
     const addr = cpu.fetchCode();
     const rel = fetchRel(cpu);
-    const val = (cpu.readDirect(addr) - 1) & 0xFF;
+    const val = (cpu.readDirect(addr, true) - 1) & 0xFF;
     cpu.writeDirect(addr, val);
     if (val !== 0) {
       cpu.pc = (cpu.pc + rel) & 0xFFFF;
@@ -659,7 +659,7 @@ export function buildOpcodeTable(): OpcodeHandler[] {
   // CPL bit: 0xB2 (2 bytes, 1 cycle)
   table[0xB2] = (cpu) => {
     const bit = cpu.fetchCode();
-    cpu.setBit(bit, !cpu.getBit(bit));
+    cpu.setBit(bit, !cpu.getBit(bit, true));
     return 1;
   };
 
@@ -692,14 +692,14 @@ export function buildOpcodeTable(): OpcodeHandler[] {
   // ANL direct, A: 0x52 (2 bytes, 1 cycle)
   table[0x52] = (cpu) => {
     const addr = cpu.fetchCode();
-    cpu.writeDirect(addr, cpu.readDirect(addr) & cpu.acc);
+    cpu.writeDirect(addr, cpu.readDirect(addr, true) & cpu.acc);
     return 1;
   };
   // ANL direct, #data: 0x53 (3 bytes, 2 cycles)
   table[0x53] = (cpu) => {
     const addr = cpu.fetchCode();
     const data = cpu.fetchCode();
-    cpu.writeDirect(addr, cpu.readDirect(addr) & data);
+    cpu.writeDirect(addr, cpu.readDirect(addr, true) & data);
     return 2;
   };
 
@@ -732,14 +732,14 @@ export function buildOpcodeTable(): OpcodeHandler[] {
   // ORL direct, A: 0x42 (2 bytes, 1 cycle)
   table[0x42] = (cpu) => {
     const addr = cpu.fetchCode();
-    cpu.writeDirect(addr, cpu.readDirect(addr) | cpu.acc);
+    cpu.writeDirect(addr, cpu.readDirect(addr, true) | cpu.acc);
     return 1;
   };
   // ORL direct, #data: 0x43 (3 bytes, 2 cycles)
   table[0x43] = (cpu) => {
     const addr = cpu.fetchCode();
     const data = cpu.fetchCode();
-    cpu.writeDirect(addr, cpu.readDirect(addr) | data);
+    cpu.writeDirect(addr, cpu.readDirect(addr, true) | data);
     return 2;
   };
 
@@ -772,14 +772,14 @@ export function buildOpcodeTable(): OpcodeHandler[] {
   // XRL direct, A: 0x62 (2 bytes, 1 cycle)
   table[0x62] = (cpu) => {
     const addr = cpu.fetchCode();
-    cpu.writeDirect(addr, cpu.readDirect(addr) ^ cpu.acc);
+    cpu.writeDirect(addr, cpu.readDirect(addr, true) ^ cpu.acc);
     return 1;
   };
   // XRL direct, #data: 0x63 (3 bytes, 2 cycles)
   table[0x63] = (cpu) => {
     const addr = cpu.fetchCode();
     const data = cpu.fetchCode();
-    cpu.writeDirect(addr, cpu.readDirect(addr) ^ data);
+    cpu.writeDirect(addr, cpu.readDirect(addr, true) ^ data);
     return 2;
   };
 

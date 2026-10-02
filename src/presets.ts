@@ -162,4 +162,129 @@ LOOP:
     SJMP LOOP           ; Main loop idling, awaiting timer interrupts
 `,
   },
+  {
+    id: 'seven-seg-counter',
+    name: '7-Segment & LED Counter (Port 1)',
+    description: 'Cycles digits 0 through 9 on the Port 1 common-anode 7-segment display and 8-LED bar graph using standard active-low segment patterns.',
+    code: `; ==========================================
+; 7-Segment & LED Digit Counter (Port 1)
+; Common-anode active-low patterns (P1.0=a..P1.6=g, P1.7=dp)
+; Digits: 0=C0H, 1=F9H, 2=A4H, 3=B0H, 4=99H,
+;         5=92H, 6=82H, 7=F8H, 8=80H, 9=90H
+; ==========================================
+ORG 0000H
+    LJMP START
+
+START:
+    ; Initialize segment pattern table in RAM 30H..39H
+    MOV 30H, #0C0H      ; '0'
+    MOV 31H, #0F9H      ; '1'
+    MOV 32H, #0A4H      ; '2'
+    MOV 33H, #0B0H      ; '3'
+    MOV 34H, #099H      ; '4'
+    MOV 35H, #092H      ; '5'
+    MOV 36H, #082H      ; '6'
+    MOV 37H, #0F8H      ; '7'
+    MOV 38H, #080H      ; '8'
+    MOV 39H, #090H      ; '9'
+
+CYCLE:
+    MOV R0, #30H        ; Pointer to first digit pattern
+    MOV R1, #0AH        ; 10 digits to display
+
+NEXT_DIGIT:
+    MOV A, @R0          ; Read segment byte
+    MOV P1, A           ; Output to Port 1 (LEDs + 7-segment display)
+    INC R0              ; Advance pointer
+    DJNZ R1, NEXT_DIGIT ; Step through 0..9
+
+    SJMP CYCLE          ; Repeat counter sequence
+`,
+  },
+  {
+    id: 'dip-switch-echo',
+    name: 'DIP Switch to LED Echo (P2 -> P1)',
+    description: 'Reads the physical state of Port 2 (interactive 8-DIP switches) and immediately reflects them onto Port 1 LEDs and 7-Segment display.',
+    code: `; ==========================================
+; DIP Switch Input Echo (P2 -> P1)
+; Quasi-bidirectional demo:
+; P2 latch is set to 0xFF so external DIP switches
+; can freely pull individual pins to GND (0).
+; The physical state is read and piped to Port 1.
+; ==========================================
+ORG 0000H
+    MOV P2, #0FFH       ; Set Port 2 latch high (enables external inputs)
+
+POLL_LOOP:
+    MOV A, P2           ; Read physical pin state of Port 2
+    MOV P1, A           ; Output directly to Port 1 LEDs & 7-segment
+    SJMP POLL_LOOP      ; Continuously poll switches
+`,
+  },
+  {
+    id: 'uart-terminal',
+    name: 'UART Terminal: Greeting & Echo',
+    description: 'Configures Timer 1 in Mode 2 for 9600 baud, sends "8051 READY" to the virtual terminal, then echos back any characters typed by the user.',
+    code: `; ==========================================
+; Virtual UART Terminal: Hello & Echo Demo
+; Configures Timer 1 Mode 2 auto-reload (9600 baud),
+; sets SCON Mode 1 (8-bit UART, REN=1), transmits
+; greeting, and echoes incoming user keystrokes.
+; ==========================================
+ORG 0000H
+    LJMP INIT
+
+INIT:
+    ; 1. Configure Timer 1 for standard baud rate generation
+    MOV TMOD, #20H      ; Timer 1 in Mode 2 (8-bit auto-reload)
+    MOV TH1, #0FDH      ; 9600 baud reload value
+    MOV TL1, #0FDH
+    SETB TR1            ; Start Timer 1
+
+    ; 2. Configure Serial Port
+    MOV SCON, #50H      ; Mode 1 (8-bit UART), REN=1 (Receiver Enabled)
+
+    ; 3. Transmit greeting: "8051 OK" + CRLF
+    MOV A, #38H         ; '8'
+    ACALL SEND_CHAR
+    MOV A, #30H         ; '0'
+    ACALL SEND_CHAR
+    MOV A, #35H         ; '5'
+    ACALL SEND_CHAR
+    MOV A, #31H         ; '1'
+    ACALL SEND_CHAR
+    MOV A, #20H         ; ' '
+    ACALL SEND_CHAR
+    MOV A, #4FH         ; 'O'
+    ACALL SEND_CHAR
+    MOV A, #4BH         ; 'K'
+    ACALL SEND_CHAR
+    MOV A, #0DH         ; '\\r'
+    ACALL SEND_CHAR
+    MOV A, #0AH         ; '\\n'
+    ACALL SEND_CHAR
+
+ECHO_LOOP:
+    ; 4. Wait for incoming user typing, then echo it back
+    ACALL RECV_CHAR     ; Wait for char -> returns in A
+    ACALL SEND_CHAR     ; Echo character back to terminal
+    SJMP ECHO_LOOP
+
+; --- Subroutines ---
+
+SEND_CHAR:
+    MOV SBUF, A         ; Write byte to serial buffer
+WAIT_TX:
+    JNB TI, WAIT_TX     ; Wait until transmission finishes
+    CLR TI              ; Clear TI flag for next transmit
+    RET
+
+RECV_CHAR:
+WAIT_RX:
+    JNB RI, WAIT_RX     ; Wait until character received
+    MOV A, SBUF         ; Read byte from serial buffer
+    CLR RI              ; Clear RI flag (enables next reception)
+    RET
+`,
+  },
 ];

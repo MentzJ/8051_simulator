@@ -7,6 +7,7 @@ import { Controls, type ExecutionSpeed } from './components/Controls';
 import { CodeEditor } from './components/CodeEditor';
 import { RegisterDashboard } from './components/RegisterDashboard';
 import { RamGrid } from './components/RamGrid';
+import { PeripheralsPanel } from './components/PeripheralsPanel';
 
 export function App() {
   const cpuRef = useRef<CPU8051>(new CPU8051());
@@ -46,6 +47,47 @@ export function App() {
   const [registers, setRegisters] = useState(readRegisters);
   const [prevRegisters, setPrevRegisters] = useState<typeof registers | null>(null);
 
+  // Peripherals snapshot
+  const readPeripherals = useCallback(() => {
+    return {
+      p1Pin: cpu.readP1Pin(),
+      p1Latch: cpu.p1Latch,
+      p1External: cpu.p1External,
+      p2Pin: cpu.readP2Pin(),
+      p2Latch: cpu.p2Latch,
+      p2External: cpu.p2External,
+      scon: cpu.scon,
+      sbufTx: cpu.sbufTx,
+      sbufRx: cpu.sbufRx,
+      uartOutput: cpu.uartOutput,
+      isUartBusy: cpu.isUartTxBusy,
+      baudCycles: cpu.calculateBaudDurationCycles(),
+    };
+  }, [cpu]);
+
+  const [peripherals, setPeripherals] = useState(readPeripherals);
+
+  // Interaction handlers for peripherals
+  const handleToggleP2Switch = useCallback((bitIndex: number) => {
+    cpu.p2External ^= (1 << bitIndex);
+    setPeripherals(readPeripherals());
+  }, [cpu, readPeripherals]);
+
+  const handleSetP2External = useCallback((val: number) => {
+    cpu.p2External = val & 0xFF;
+    setPeripherals(readPeripherals());
+  }, [cpu, readPeripherals]);
+
+  const handleSendUartInput = useCallback((input: string) => {
+    cpu.receiveUart(input);
+    setPeripherals(readPeripherals());
+  }, [cpu, readPeripherals]);
+
+  const handleClearUartOutput = useCallback(() => {
+    cpu.clearUartOutput();
+    setPeripherals(readPeripherals());
+  }, [cpu, readPeripherals]);
+
   // RAM state (0x00 - 0x7F) and change tracking
   const [ram, setRam] = useState<Uint8Array>(() => new Uint8Array(cpu.ram.subarray(0, 128)));
   const [modifiedAddresses, setModifiedAddresses] = useState<Set<number>>(new Set());
@@ -84,11 +126,12 @@ export function App() {
         setRegisters(readRegisters());
         setPrevRegisters(null);
         setRam(new Uint8Array(cpu.ram.subarray(0, 128)));
+        setPeripherals(readPeripherals());
         updateActiveLineForPC(cpu.pc, res.sourceMap);
       }
       return res;
     },
-    [cpu, readRegisters, updateActiveLineForPC]
+    [cpu, readRegisters, readPeripherals, updateActiveLineForPC]
   );
 
   // Initialize on mount
@@ -137,6 +180,7 @@ export function App() {
       setRegisters(newRegs);
       setRam(new Uint8Array(cpu.ram.subarray(0, 128)));
       setModifiedAddresses(changed);
+      setPeripherals(readPeripherals());
       setCycleCount((c) => c + res.cycles);
       setInstructionCount((i) => i + 1);
 
@@ -155,7 +199,7 @@ export function App() {
       console.error('CPU Execution error:', err);
       setIsRunning(false);
     }
-  }, [assemblyResult, cpu, readRegisters, updateActiveLineForPC]);
+  }, [assemblyResult, cpu, readRegisters, readPeripherals, updateActiveLineForPC]);
 
   // Handle Reset Action
   const handleReset = () => {
@@ -213,6 +257,7 @@ export function App() {
         // Update UI after batch
         setRegisters(readRegisters());
         setRam(new Uint8Array(cpu.ram.subarray(0, 128)));
+        setPeripherals(readPeripherals());
         updateActiveLineForPC(cpu.pc, assemblyResult.sourceMap);
 
         if (!isHalted) {
@@ -223,7 +268,7 @@ export function App() {
       rafId = requestAnimationFrame(runBatch);
       return () => cancelAnimationFrame(rafId);
     }
-  }, [isRunning, isHalted, speed, handleStep, cpu, readRegisters, assemblyResult, updateActiveLineForPC]);
+  }, [isRunning, isHalted, speed, handleStep, cpu, readRegisters, readPeripherals, assemblyResult, updateActiveLineForPC]);
 
   return (
     <div className="flex min-h-screen flex-col bg-[#070a12] text-slate-100 font-sans">
@@ -274,6 +319,28 @@ export function App() {
           <div className="lg:col-span-5 h-[460px]">
             <RegisterDashboard registers={registers} prevRegisters={prevRegisters} />
           </div>
+        </div>
+
+        {/* Middle: Visual Peripherals Panel (P1 LEDs, 7-Segment, P2 DIP Switches, UART Terminal) */}
+        <div>
+          <PeripheralsPanel
+            p1Pin={peripherals.p1Pin}
+            p1Latch={peripherals.p1Latch}
+            p1External={peripherals.p1External}
+            p2Pin={peripherals.p2Pin}
+            p2Latch={peripherals.p2Latch}
+            p2External={peripherals.p2External}
+            onToggleP2Switch={handleToggleP2Switch}
+            onSetP2External={handleSetP2External}
+            scon={peripherals.scon}
+            sbufTx={peripherals.sbufTx}
+            sbufRx={peripherals.sbufRx}
+            uartOutput={peripherals.uartOutput}
+            isUartBusy={peripherals.isUartBusy}
+            baudCycles={peripherals.baudCycles}
+            onSendUartInput={handleSendUartInput}
+            onClearUartOutput={handleClearUartOutput}
+          />
         </div>
 
         {/* Bottom: 16x8 Hex Grid showing Internal RAM (0x00–0x7F) */}
