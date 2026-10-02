@@ -26,6 +26,11 @@ export class CPU8051 {
   private _dph: number = 0x00;
   private _psw: number = 0x00;
 
+  /** Internal interrupt-in-service priority tracking */
+  private inServiceHigh: boolean = false;
+  private inServiceLow: boolean = false;
+  private isrPriorityStack: number[] = [];
+
   /** 256-element jump table for instruction execution */
   private readonly jumpTable: OpcodeHandler[];
 
@@ -40,6 +45,7 @@ export class CPU8051 {
    * - SP resets to 0x07
    * - ACC, B, PSW, DPTR reset to 0x00
    * - Default ports (P0-P3) set to 0xFF
+   * - Interrupt latches cleared
    */
   public reset(): void {
     this.pc = 0x0000;
@@ -51,6 +57,11 @@ export class CPU8051 {
     this._dpl = 0x00;
     this._dph = 0x00;
     this._psw = 0x00;
+
+    // Reset interrupt service state
+    this.inServiceHigh = false;
+    this.inServiceLow = false;
+    this.isrPriorityStack = [];
 
     // Synchronize default SFR values
     this.sfr[SFR.SP - 0x80] = 0x07;
@@ -192,6 +203,96 @@ export class CPU8051 {
     val &= 0xFFFF;
     this.dph = (val >> 8) & 0xFF;
     this.dpl = val & 0xFF;
+  }
+
+  // --- Peripheral & Control SFR Accessors ---
+
+  public get tcon(): number {
+    return this.getSFR(SFR.TCON);
+  }
+  public set tcon(val: number) {
+    this.setSFR(SFR.TCON, val);
+  }
+
+  public get tmod(): number {
+    return this.getSFR(SFR.TMOD);
+  }
+  public set tmod(val: number) {
+    this.setSFR(SFR.TMOD, val);
+  }
+
+  public get tl0(): number {
+    return this.getSFR(SFR.TL0);
+  }
+  public set tl0(val: number) {
+    this.setSFR(SFR.TL0, val);
+  }
+
+  public get th0(): number {
+    return this.getSFR(SFR.TH0);
+  }
+  public set th0(val: number) {
+    this.setSFR(SFR.TH0, val);
+  }
+
+  public get tl1(): number {
+    return this.getSFR(SFR.TL1);
+  }
+  public set tl1(val: number) {
+    this.setSFR(SFR.TL1, val);
+  }
+
+  public get th1(): number {
+    return this.getSFR(SFR.TH1);
+  }
+  public set th1(val: number) {
+    this.setSFR(SFR.TH1, val);
+  }
+
+  public get ie(): number {
+    return this.getSFR(SFR.IE);
+  }
+  public set ie(val: number) {
+    this.setSFR(SFR.IE, val);
+  }
+
+  public get ip(): number {
+    return this.getSFR(SFR.IP);
+  }
+  public set ip(val: number) {
+    this.setSFR(SFR.IP, val);
+  }
+
+  // --- Interrupt Latch Helpers ---
+
+  /** Returns true if any interrupt is currently being serviced */
+  public get isInterruptActive(): boolean {
+    return this.inServiceHigh || this.inServiceLow;
+  }
+
+  /** Returns true if a high-priority interrupt is currently in service */
+  public get isInterruptHighActive(): boolean {
+    return this.inServiceHigh;
+  }
+
+  /** Returns true if a low-priority interrupt is currently in service */
+  public get isInterruptLowActive(): boolean {
+    return this.inServiceLow;
+  }
+
+  /**
+   * Clears the highest active interrupt-in-service priority latch upon RETI (opcode 0x32).
+   */
+  public clearInterruptLatch(): void {
+    const prio = this.isrPriorityStack.pop();
+    if (prio === 1) {
+      this.inServiceHigh = false;
+    } else if (prio === 0) {
+      this.inServiceLow = false;
+    } else {
+      this.inServiceHigh = false;
+      this.inServiceLow = false;
+    }
   }
 
   // --- Flag Helpers ---
@@ -353,11 +454,227 @@ export class CPU8051 {
   }
 
   /**
-   * Executes a single instruction step.
+   * Advances hardware peripherals by the specified number of elapsed machine cycles.
+   * @param cycles Number of machine cycles consumed (typically 1, 2, or 4).
+   */
+  public tickPeripherals(cycles: number): void {
+    if (cycles <= 0) return;
+    this.tickTimers(cycles);
+  }
+
+  /**
+   * Advances Timer 0 and Timer 1 counters according to their mode and run bits.
+   * - Mode 1: 16-bit counter (TLx + THx cascading)
+   * - Mode 2: 8-bit auto-reload from THx to TLx
+   */
+  private tickTimers(cycles: number): void {
+    const tcon = this.getSFR(SFR.TCON);
+    const tmod = this.getSFR(SFR.TMOD);
+
+    // --- Timer 0 ---
+    const tr0 = (tcon & 0x10) !== 0; // Bit 4 of TCON (TR0)
+    const ct0 = (tmod & 0x04) !== 0; // Bit 2 of TMOD (0 = Timer, 1 = Counter)
+    if (tr0 && !ct0) {
+      const mode0 = tmod & 0x03;
+      let tl0 = this.getSFR(SFR.TL0);
+      let th0 = this.getSFR(SFR.TH0);
+      let tf0 = (tcon & 0x20) !== 0;
+
+      for (let i = 0; i < cycles; i++) {
+        if (mode0 === 1) {
+          // Mode 1: 16-bit counter
+          tl0 = (tl0 + 1) & 0xFF;
+          if (tl0 === 0) {
+            th0 = (th0 + 1) & 0xFF;
+            if (th0 === 0) {
+              tf0 = true;
+            }
+          }
+        } else if (mode0 === 2) {
+          // Mode 2: 8-bit auto-reload from TH0 to TL0
+          tl0 = (tl0 + 1) & 0xFF;
+          if (tl0 === 0) {
+            tl0 = th0;
+            tf0 = true;
+          }
+        } else if (mode0 === 0) {
+          // Mode 0: 13-bit counter (lower 5 bits of TL0, 8 bits of TH0)
+          tl0 = (tl0 + 1) & 0x1F;
+          if (tl0 === 0) {
+            th0 = (th0 + 1) & 0xFF;
+            if (th0 === 0) {
+              tf0 = true;
+            }
+          }
+        }
+      }
+
+      this.setSFR(SFR.TL0, tl0);
+      this.setSFR(SFR.TH0, th0);
+      if (tf0) {
+        this.setSFR(SFR.TCON, this.getSFR(SFR.TCON) | 0x20);
+      }
+    }
+
+    // --- Timer 1 ---
+    const tr1 = (tcon & 0x40) !== 0; // Bit 6 of TCON (TR1)
+    const ct1 = (tmod & 0x40) !== 0; // Bit 6 of TMOD (0 = Timer, 1 = Counter)
+    if (tr1 && !ct1) {
+      const mode1 = (tmod >> 4) & 0x03;
+      let tl1 = this.getSFR(SFR.TL1);
+      let th1 = this.getSFR(SFR.TH1);
+      let tf1 = (tcon & 0x80) !== 0;
+
+      for (let i = 0; i < cycles; i++) {
+        if (mode1 === 1) {
+          // Mode 1: 16-bit counter
+          tl1 = (tl1 + 1) & 0xFF;
+          if (tl1 === 0) {
+            th1 = (th1 + 1) & 0xFF;
+            if (th1 === 0) {
+              tf1 = true;
+            }
+          }
+        } else if (mode1 === 2) {
+          // Mode 2: 8-bit auto-reload from TH1 to TL1
+          tl1 = (tl1 + 1) & 0xFF;
+          if (tl1 === 0) {
+            tl1 = th1;
+            tf1 = true;
+          }
+        } else if (mode1 === 0) {
+          // Mode 0: 13-bit counter
+          tl1 = (tl1 + 1) & 0x1F;
+          if (tl1 === 0) {
+            th1 = (th1 + 1) & 0xFF;
+            if (th1 === 0) {
+              tf1 = true;
+            }
+          }
+        }
+      }
+
+      this.setSFR(SFR.TL1, tl1);
+      this.setSFR(SFR.TH1, th1);
+      if (tf1) {
+        this.setSFR(SFR.TCON, this.getSFR(SFR.TCON) | 0x80);
+      }
+    }
+  }
+
+  /**
+   * Checks for pending enabled interrupts and services the highest priority one.
+   * If serviced:
+   * - Pushes current PC to stack (SP += 2).
+   * - Clears hardware request flag (TF0 / TF1).
+   * - Sets internal interrupt-in-service latch.
+   * - Jumps to vector.
+   * @returns Machine cycles consumed by interrupt dispatch (2 if serviced, 0 if none).
+   */
+  public checkAndServiceInterrupts(): number {
+    const ie = this.getSFR(SFR.IE);
+    // Global interrupt enable check: EA (IE.7) must be 1
+    if ((ie & 0x80) === 0) {
+      return 0;
+    }
+
+    const tcon = this.getSFR(SFR.TCON);
+    const ip = this.getSFR(SFR.IP);
+
+    interface InterruptCandidate {
+      name: string;
+      vector: number;
+      pending: boolean;
+      priority: number;
+      clearFlag: () => void;
+      naturalOrder: number;
+    }
+
+    const sources: InterruptCandidate[] = [
+      {
+        name: 'Timer 0',
+        vector: 0x000B,
+        pending: (tcon & 0x20) !== 0 && (ie & 0x02) !== 0,
+        priority: (ip & 0x02) !== 0 ? 1 : 0,
+        clearFlag: () => {
+          this.setSFR(SFR.TCON, this.getSFR(SFR.TCON) & ~0x20);
+        },
+        naturalOrder: 1,
+      },
+      {
+        name: 'Timer 1',
+        vector: 0x001B,
+        pending: (tcon & 0x80) !== 0 && (ie & 0x08) !== 0,
+        priority: (ip & 0x08) !== 0 ? 1 : 0,
+        clearFlag: () => {
+          this.setSFR(SFR.TCON, this.getSFR(SFR.TCON) & ~0x80);
+        },
+        naturalOrder: 2,
+      },
+    ];
+
+    const eligible = sources.filter((s) => {
+      if (!s.pending) return false;
+      if (this.inServiceHigh) {
+        return false;
+      }
+      if (this.inServiceLow) {
+        return s.priority === 1;
+      }
+      return true;
+    });
+
+    if (eligible.length === 0) {
+      return 0;
+    }
+
+    // Sort: high priority first (1 before 0); for same priority, lower naturalOrder first
+    eligible.sort((a, b) => {
+      if (b.priority !== a.priority) {
+        return b.priority - a.priority;
+      }
+      return a.naturalOrder - b.naturalOrder;
+    });
+
+    const chosen = eligible[0];
+
+    // Push current PC to stack (low byte then high byte, SP += 2)
+    this.push(this.pc & 0xFF);
+    this.push((this.pc >> 8) & 0xFF);
+
+    // Clear request flag
+    chosen.clearFlag();
+
+    // Set internal interrupt latch
+    if (chosen.priority === 1) {
+      this.inServiceHigh = true;
+    } else {
+      this.inServiceLow = true;
+    }
+    this.isrPriorityStack.push(chosen.priority);
+
+    // Jump to vector
+    this.pc = chosen.vector;
+
+    // 8051 hardware interrupt acknowledgment consumes 2 machine cycles
+    return 2;
+  }
+
+  /**
+   * Executes a single instruction step (or services a pending interrupt).
    * Dispatches the instruction via the 256-element jump table.
-   * @returns Object containing the number of CPU cycles consumed by the instruction.
+   * Passes elapsed cycles to tickPeripherals().
+   * @returns Object containing the exact number of CPU cycles consumed (1, 2, or 4).
    */
   public step(): StepResult {
+    // 1. Check pending interrupts at the start of step()
+    const interruptCycles = this.checkAndServiceInterrupts();
+    if (interruptCycles > 0) {
+      this.tickPeripherals(interruptCycles);
+      return { cycles: interruptCycles };
+    }
+
+    // 2. Fetch and execute next instruction
     const pcBefore = this.pc;
     const opcode = this.fetchCode();
     const handler = this.jumpTable[opcode];
@@ -372,6 +689,7 @@ export class CPU8051 {
     }
 
     const cycles = handler(this, opcode);
+    this.tickPeripherals(cycles);
     return { cycles };
   }
 

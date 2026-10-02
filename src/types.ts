@@ -42,6 +42,59 @@ export const PSW_MASK = {
   CY: 0x80,  // Bit 7: Carry flag (carry from bit 7)
 } as const;
 
+/**
+ * TCON (Timer/Counter Control) Bit Masks (Address 0x88)
+ */
+export const TCON_MASK = {
+  IT0: 0x01, // Bit 0: Interrupt 0 type control bit
+  IE0: 0x02, // Bit 1: Interrupt 0 edge flag
+  IT1: 0x04, // Bit 2: Interrupt 1 type control bit
+  IE1: 0x08, // Bit 3: Interrupt 1 edge flag
+  TR0: 0x10, // Bit 4: Timer 0 run control bit (1 = run)
+  TF0: 0x20, // Bit 5: Timer 0 overflow flag
+  TR1: 0x40, // Bit 6: Timer 1 run control bit (1 = run)
+  TF1: 0x80, // Bit 7: Timer 1 overflow flag
+} as const;
+
+/**
+ * TMOD (Timer/Counter Mode) Bit Masks (Address 0x89)
+ */
+export const TMOD_MASK = {
+  T0_M0: 0x01,   // Bit 0: Timer 0 mode bit 0
+  T0_M1: 0x02,   // Bit 1: Timer 0 mode bit 1
+  T0_CT: 0x04,   // Bit 2: Timer 0 Counter/Timer select (0=Timer, 1=Counter)
+  T0_GATE: 0x08, // Bit 3: Timer 0 Gate control
+  T1_M0: 0x10,   // Bit 4: Timer 1 mode bit 0
+  T1_M1: 0x20,   // Bit 5: Timer 1 mode bit 1
+  T1_CT: 0x40,   // Bit 6: Timer 1 Counter/Timer select (0=Timer, 1=Counter)
+  T1_GATE: 0x80, // Bit 7: Timer 1 Gate control
+} as const;
+
+/**
+ * IE (Interrupt Enable) Bit Masks (Address 0xA8)
+ */
+export const IE_MASK = {
+  EX0: 0x01, // Bit 0: External Interrupt 0 Enable
+  ET0: 0x02, // Bit 1: Timer 0 Interrupt Enable
+  EX1: 0x04, // Bit 2: External Interrupt 1 Enable
+  ET1: 0x08, // Bit 3: Timer 1 Interrupt Enable
+  ES:  0x10, // Bit 4: Serial Port Interrupt Enable
+  ET2: 0x20, // Bit 5: Timer 2 Interrupt Enable (8052)
+  EA:  0x80, // Bit 7: Global Interrupt Enable (1 = enabled)
+} as const;
+
+/**
+ * IP (Interrupt Priority) Bit Masks (Address 0xB8)
+ */
+export const IP_MASK = {
+  PX0: 0x01, // Bit 0: External Interrupt 0 Priority
+  PT0: 0x02, // Bit 1: Timer 0 Priority
+  PX1: 0x04, // Bit 2: External Interrupt 1 Priority
+  PT1: 0x08, // Bit 3: Timer 1 Priority
+  PS:  0x10, // Bit 4: Serial Port Priority
+  PT2: 0x20, // Bit 5: Timer 2 Priority (8052)
+} as const;
+
 export interface StepResult {
   cycles: number;
 }

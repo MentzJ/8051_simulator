@@ -150,6 +150,15 @@ export function buildOpcodeTable(): OpcodeHandler[] {
     return 2;
   };
 
+  // RETI: 0x32 (1 byte, 2 cycles) - Return from interrupt (pops PC & clears interrupt latch)
+  table[0x32] = (cpu) => {
+    const high = cpu.pop();
+    const low = cpu.pop();
+    cpu.pc = (high << 8) | low;
+    cpu.clearInterruptLatch();
+    return 2;
+  };
+
   // ----------------------------------------------------
   // 3. Stack (PUSH / POP)
   // ----------------------------------------------------

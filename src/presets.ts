@@ -132,5 +132,34 @@ ORG 0000H
 FINISH:
     SJMP FINISH
 `,
-  }
+  },
+  {
+    id: 'square-wave',
+    name: 'Timer 0 Square Wave (50 Cycles)',
+    description: 'Generates a square wave by toggling ACC.0 every 50 machine cycles using Timer 0 in Mode 2 (8-bit auto-reload) and interrupt vector 000BH.',
+    code: `; ==========================================
+; Timer 0 Mode 2 Square Wave Generator
+; Toggles ACC.0 every 50 clock cycles via
+; Timer 0 auto-reload interrupt at vector 000BH.
+; ==========================================
+ORG 0000H
+    LJMP MAIN
+
+ORG 000BH
+    ; Timer 0 Interrupt Service Routine (ISR)
+    CPL ACC.0           ; Toggle square wave output at ACC.0
+    RETI                ; Return from interrupt (clears latch & restores PC)
+
+MAIN:
+    MOV A, #00H         ; Square wave starts low (ACC.0 = 0)
+    MOV TMOD, #02H      ; Timer 0 in Mode 2 (8-bit auto-reload, C/T=0)
+    MOV TH0, #0CEH      ; Auto-reload value = 256 - 50 = 206 (0xCE)
+    MOV TL0, #0CEH      ; Initial counter value
+    MOV IE, #82H        ; Enable Global Interrupts (EA=1) & Timer 0 (ET0=1)
+    SETB TR0            ; Start Timer 0
+
+LOOP:
+    SJMP LOOP           ; Main loop idling, awaiting timer interrupts
+`,
+  },
 ];
